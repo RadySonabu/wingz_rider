@@ -25,6 +25,7 @@ class RideFilter(django_filters.FilterSet):
 
 class RidePagination(PageNumberPagination):
     page_size = 10
+    page_size_query_param = "page_size"
 
 
 class RideViewSet(viewsets.ModelViewSet):
@@ -86,7 +87,7 @@ class RideViewSet(viewsets.ModelViewSet):
                 rides_with_distances.append((ride, distance))
 
             # Sort rides based on the computed distance
-            reverse = True if sort_by == "distance" else False
+            reverse = False if sort_by == "distance" else True
             rides_with_distances.sort(key=lambda x: x[1], reverse=reverse)
 
             # Extract sorted rides
@@ -104,10 +105,8 @@ class RideViewSet(viewsets.ModelViewSet):
 
     def get_serializer_class(self):
         if self.action == "list":
-            print("use list")
             return RideListSerializer
         if self.action in ["create", "update", "partial_update"]:
-            print("use fcreate")
 
             return RideCreateSerializer
         return RideListSerializer
