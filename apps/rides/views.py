@@ -1,12 +1,11 @@
-from rest_framework import viewsets
-from .models import Ride, RideEvent
-from .serializers import RideSerializer, RideEventSerializer
-from django_filters import rest_framework as django_filters
-from rest_framework.pagination import PageNumberPagination
-from rest_framework import filters
 from django.db.models import Case, When
+from django_filters import rest_framework as django_filters
+from rest_framework import filters, viewsets
 from rest_framework.exceptions import ValidationError
-from django.utils import timezone
+from rest_framework.pagination import PageNumberPagination
+
+from .models import Ride, RideEvent
+from .serializers import RideCreateSerializer, RideEventSerializer, RideListSerializer
 
 
 class RideFilter(django_filters.FilterSet):
@@ -33,7 +32,6 @@ class RideViewSet(viewsets.ModelViewSet):
         .prefetch_related("events")
         .all()
     )
-    serializer_class = RideSerializer
     pagination_class = RidePagination
     filter_backends = (django_filters.DjangoFilterBackend, filters.OrderingFilter)
     filterset_class = RideFilter
@@ -52,8 +50,6 @@ class RideViewSet(viewsets.ModelViewSet):
         # Handle sorting by distance
         sort_by = self.request.query_params.get("sort_by", "pickup_time")
 
-        # TODO: What will happen if lat and lon is None
-        # TODO: Reduce queries sent to database
         if sort_by in ["distance", "-distance"]:
             lat = self.request.query_params.get("latitude", 0)
             lon = self.request.query_params.get("longitude", 0)
@@ -98,10 +94,15 @@ class RideViewSet(viewsets.ModelViewSet):
 
         return queryset.order_by(sort_by)
 
+    def get_serializer_class(self):
+        if self.action == "list":
+            return RideListSerializer
+        if self.action in ["create", "update", "partial_update"]:
+            return RideCreateSerializer
+        return RideListSerializer
+
 
 class RideEventViewSet(viewsets.ModelViewSet):
-    queryset = RideEvent.objects.all().select_related(
-        "ride__id_rider", "ride__id_driver"
-    )
+    queryset = RideEvent.objects.all()
     serializer_class = RideEventSerializer
     pagination_class = RidePagination

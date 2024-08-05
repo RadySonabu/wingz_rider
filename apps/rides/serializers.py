@@ -1,10 +1,10 @@
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
-from apps.users.serializers import UserSerializer, UserSerializerReadOnly
+from apps.users.serializers import UserSerializer
+
 from .models import Ride, RideEvent
-from django.contrib.auth import get_user_model
-from django.utils import timezone
-from ..users.models import CustomUser
+
 
 User = get_user_model()
 
@@ -13,10 +13,10 @@ class RideEventSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = RideEvent
-        fields = ["id_ride_event", "description", "created_at"]
+        fields = "__all__"
 
 
-class RideSerializer(serializers.ModelSerializer):
+class RideListSerializer(serializers.ModelSerializer):
 
     id_rider = UserSerializer(read_only=True)
     id_driver = UserSerializer(read_only=True)
@@ -36,3 +36,10 @@ class RideSerializer(serializers.ModelSerializer):
             "pickup_time",
             "todays_ride_events",
         ]
+
+
+class RideCreateSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Ride
+        fields = "__all__"
