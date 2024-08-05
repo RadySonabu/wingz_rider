@@ -1,4 +1,5 @@
-from django.db.models import Case, When
+from django.utils import timezone
+from django.db.models import Case, When, Prefetch
 from django_filters import rest_framework as django_filters
 from rest_framework import filters, viewsets
 from rest_framework.exceptions import ValidationError
@@ -38,14 +39,21 @@ class RideViewSet(viewsets.ModelViewSet):
     ordering_fields = ["pickup_time"]
 
     def get_queryset(self):
-        # Get the base queryset with related objects prefetched
-        queryset = (
-            Ride.objects.select_related("id_rider", "id_driver")
-            .prefetch_related(
-                "events",
-            )
-            .all()
+        today = timezone.now()
+        last_24_hours = today - timezone.timedelta(hours=24)
+
+        # ride_events_24_hours filters RideEvent object/s created outside the 24 hour period.
+        ride_events_24_hours = Prefetch(
+            "events",
+            queryset=RideEvent.objects.select_related(
+                "ride",
+            ).filter(created_at__gte=last_24_hours),
         )
+
+        # Get the base queryset with related objects prefetched
+        queryset = Ride.objects.select_related(
+            "id_rider", "id_driver"
+        ).prefetch_related(ride_events_24_hours)
 
         # Handle sorting by distance
         sort_by = self.request.query_params.get("sort_by", "pickup_time")
@@ -96,8 +104,11 @@ class RideViewSet(viewsets.ModelViewSet):
 
     def get_serializer_class(self):
         if self.action == "list":
+            print("use list")
             return RideListSerializer
         if self.action in ["create", "update", "partial_update"]:
+            print("use fcreate")
+
             return RideCreateSerializer
         return RideListSerializer
 
