@@ -1,9 +1,10 @@
+from django.db.models import ExpressionWrapper, F, FloatField, Prefetch
+from django.db.models.functions import Cos, Power, Radians, Sin, Sqrt
 from django.utils import timezone
-from django.db.models import Case, When, Prefetch
 from django_filters import rest_framework as django_filters
 from rest_framework import filters, viewsets
 from rest_framework.exceptions import ValidationError
-from rest_framework.pagination import PageNumberPagination
+from rest_framework.pagination import LimitOffsetPagination
 
 from .models import Ride, RideEvent
 from .serializers import RideCreateSerializer, RideEventSerializer, RideListSerializer
@@ -23,23 +24,19 @@ class RideFilter(django_filters.FilterSet):
         ]
 
 
-class RidePagination(PageNumberPagination):
-    page_size = 10
-    page_size_query_param = "page_size"
+class RidePagination(LimitOffsetPagination):
+    default_limit = 10
+    max_limit = 100
 
 
 class RideViewSet(viewsets.ModelViewSet):
-    queryset = (
-        Ride.objects.select_related("id_rider", "id_driver")
-        .prefetch_related("events")
-        .all()
-    )
     pagination_class = RidePagination
     filter_backends = (django_filters.DjangoFilterBackend, filters.OrderingFilter)
     filterset_class = RideFilter
-    ordering_fields = ["pickup_time"]
+    ordering_fields = ["pickup_time", "distance"]
 
     def get_queryset(self):
+
         today = timezone.now()
         last_24_hours = today - timezone.timedelta(hours=24)
 
@@ -51,7 +48,6 @@ class RideViewSet(viewsets.ModelViewSet):
             ).filter(created_at__gte=last_24_hours),
         )
 
-        # Get the base queryset with related objects prefetched
         queryset = Ride.objects.select_related(
             "id_rider", "id_driver"
         ).prefetch_related(ride_events_24_hours)
@@ -60,44 +56,59 @@ class RideViewSet(viewsets.ModelViewSet):
         sort_by = self.request.query_params.get("sort_by", "pickup_time")
 
         if sort_by in ["distance", "-distance"]:
-            lat = self.request.query_params.get("latitude", 0)
-            lon = self.request.query_params.get("longitude", 0)
-            if not lat or not lon:
-
-                raise ValidationError(
-                    {
-                        "detail": "`latitude` and `longitude` must be provided for distance sorting."
-                    }
-                )
-
             try:
-                user_lat = float(lat)
-                user_lon = float(lon)
+                lat = self.request.query_params.get("latitude", 0)
+                lon = self.request.query_params.get("longitude", 0)
+
+                if not lat or not lon:
+                    raise ValidationError(
+                        {
+                            "detail": "`latitude` and `longitude` must be provided for distance sorting."
+                        }
+                    )
+                user_latitude_radians = Radians(float(lat))
+                user_longitude_radians = Radians(float(lon))
             except ValueError:
                 raise ValidationError(
                     {"detail": "`latitude` and `longitude` must be valid numbers."}
                 )
 
-            # Calculate distances and sort
-            rides_with_distances = []
-            for ride in queryset:
-                distance = ride.haversine_distance(
-                    user_lat, user_lon, ride.pickup_latitude, ride.pickup_longitude
-                )
-                rides_with_distances.append((ride, distance))
-
-            # Sort rides based on the computed distance
-            reverse = False if sort_by == "distance" else True
-            rides_with_distances.sort(key=lambda x: x[1], reverse=reverse)
-
-            # Extract sorted rides
-            sorted_rides = [ride.pk for ride, _ in rides_with_distances]
-
-            preserved = Case(
-                *[When(pk=pk, then=pos) for pos, pk in enumerate(sorted_rides)]
+            distance_expression = ExpressionWrapper(
+                6371
+                * 2
+                * Radians(
+                    Sqrt(
+                        Power(
+                            Sin(
+                                (Radians(F("pickup_latitude")) - user_latitude_radians)
+                                / 2
+                            ),
+                            2,
+                        )
+                        + Cos(user_latitude_radians)
+                        * Cos(Radians(F("pickup_latitude")))
+                        * Power(
+                            Sin(
+                                (
+                                    Radians(F("pickup_longitude"))
+                                    - user_longitude_radians
+                                )
+                                / 2
+                            ),
+                            2,
+                        )
+                    )
+                ),
+                output_field=FloatField(),
             )
 
-            queryset = queryset.filter(pk__in=sorted_rides).order_by(preserved)
+            limit = int(self.request.query_params.get("limit", 100))
+            offset = int(self.request.query_params.get("offset", 0))
+            queryset = queryset.annotate(distance=distance_expression).order_by(
+                sort_by
+            )[
+                max(0, offset - 1) : limit
+            ]  # [1: 2]
 
             return queryset
 
