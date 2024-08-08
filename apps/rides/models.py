@@ -34,18 +34,6 @@ class Ride(models.Model):
     def __str__(self):
         return f"Ride {self.id_ride} from ({self.pickup_latitude}, {self.pickup_longitude}) to ({self.dropoff_latitude}, {self.dropoff_longitude})"
 
-    def haversine_distance(self, lat1, lon1, lat2, lon2):
-        # Calculate distance using Haversine formula
-        R = 6371.0  # Radius of Earth in kilometers
-
-        lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
-
-        dlat = lat2 - lat1
-        dlon = lon2 - lon1
-        a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
-        c = 2 * atan2(sqrt(a), sqrt(1 - a))
-        return R * c
-
 
 class RideEvent(models.Model):
     id_ride_event = models.AutoField(primary_key=True)
