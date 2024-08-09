@@ -52,8 +52,10 @@ class RideViewSet(viewsets.ModelViewSet):
             "id_rider", "id_driver"
         ).prefetch_related(ride_events_24_hours)
 
-        # Handle sorting by distance
+        # Get query params
         sort_by = self.request.query_params.get("sort_by", "pickup_time")
+        limit = int(self.request.query_params.get("limit", 100))
+        offset = int(self.request.query_params.get("offset", 0))
 
         if sort_by in ["distance", "-distance"]:
             try:
@@ -102,8 +104,6 @@ class RideViewSet(viewsets.ModelViewSet):
                 output_field=FloatField(),
             )
 
-            limit = int(self.request.query_params.get("limit", 100))
-            offset = int(self.request.query_params.get("offset", 0))
             queryset = queryset.annotate(distance=distance_expression).order_by(
                 sort_by
             )[
@@ -112,9 +112,7 @@ class RideViewSet(viewsets.ModelViewSet):
 
             return queryset
 
-        return queryset.order_by(sort_by)[
-                max(0, offset - 1) : limit
-            ]  
+        return queryset.order_by(sort_by)[max(0, offset - 1) : limit]
 
     def get_serializer_class(self):
         if self.action == "list":
