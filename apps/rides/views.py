@@ -112,7 +112,9 @@ class RideViewSet(viewsets.ModelViewSet):
 
             return queryset
 
-        return queryset.order_by(sort_by)
+        return queryset.order_by(sort_by)[
+                max(0, offset - 1) : limit
+            ]  
 
     def get_serializer_class(self):
         if self.action == "list":
