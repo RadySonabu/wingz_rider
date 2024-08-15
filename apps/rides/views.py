@@ -1,10 +1,17 @@
-from django.db.models import ExpressionWrapper, F, FloatField, Prefetch
+from django.db.models import (
+    ExpressionWrapper,
+    F,
+    FloatField,
+    OuterRef,
+    Prefetch,
+    Subquery,
+)
 from django.db.models.functions import Cos, Power, Radians, Sin, Sqrt
 from django.utils import timezone
 from django_filters import rest_framework as django_filters
 from rest_framework import filters, viewsets
 from rest_framework.exceptions import ValidationError
-from rest_framework.pagination import LimitOffsetPagination
+from rest_framework.pagination import PageNumberPagination
 
 from .models import Ride, RideEvent
 from .serializers import RideCreateSerializer, RideEventSerializer, RideListSerializer
@@ -24,9 +31,16 @@ class RideFilter(django_filters.FilterSet):
         ]
 
 
-class RidePagination(LimitOffsetPagination):
-    default_limit = 10
-    max_limit = 100
+class RidePagination(PageNumberPagination):
+    page_size = 10
+    max_page_size = 100
+    page_size_query_param = "page_size"
+
+
+class RideEventPagination(PageNumberPagination):
+    page_size = 10
+    max_page_size = 100
+    page_size_query_param = "page_size"
 
 
 class RideViewSet(viewsets.ModelViewSet):
@@ -36,26 +50,39 @@ class RideViewSet(viewsets.ModelViewSet):
     ordering_fields = ["pickup_time", "distance"]
 
     def get_queryset(self):
+        """Returns queryset for RideList API.
+
+        Args:
+             sort_by (str): sorts the ride list [pickup_time, distance]; default value is pickup_time
+             ride_events_max_size (int): limits the ride_events; default value is 10
+        """
+        # Get query params
+        sort_by = self.request.query_params.get("sort_by", "pickup_time")
+        ride_events_max_size = int(
+            self.request.query_params.get("ride_events_max_size", 10)
+        )
 
         today = timezone.now()
         last_24_hours = today - timezone.timedelta(hours=24)
+        limited_ride_events_24_hours = (
+            RideEvent.objects.select_related(
+                "ride",
+            )
+            .filter(created_at__gte=last_24_hours)
+            .order_by("-created_at")[:ride_events_max_size]
+        )
 
-        # ride_events_24_hours filters RideEvent object/s created outside the 24 hour period.
         ride_events_24_hours = Prefetch(
             "events",
-            queryset=RideEvent.objects.select_related(
-                "ride",
-            ).filter(created_at__gte=last_24_hours),
+            queryset=RideEvent.objects.filter(
+                pk__in=Subquery(limited_ride_events_24_hours.values("pk"))
+            ),
+            to_attr="limited_ride_events_24_hours",
         )
 
         queryset = Ride.objects.select_related(
             "id_rider", "id_driver"
         ).prefetch_related(ride_events_24_hours)
-
-        # Get query params
-        sort_by = self.request.query_params.get("sort_by", "pickup_time")
-        limit = int(self.request.query_params.get("limit", 100))
-        offset = int(self.request.query_params.get("offset", 0))
 
         if sort_by in ["distance", "-distance"]:
             try:
@@ -104,21 +131,16 @@ class RideViewSet(viewsets.ModelViewSet):
                 output_field=FloatField(),
             )
 
-            queryset = queryset.annotate(distance=distance_expression).order_by(
-                sort_by
-            )[
-                max(0, offset - 1) : limit
-            ]  # [1: 2]
+            queryset = queryset.annotate(distance=distance_expression).order_by(sort_by)
 
             return queryset
 
-        return queryset.order_by(sort_by)[max(0, offset - 1) : limit]
+        return queryset.order_by(sort_by)
 
     def get_serializer_class(self):
         if self.action == "list":
             return RideListSerializer
         if self.action in ["create", "update", "partial_update"]:
-
             return RideCreateSerializer
         return RideListSerializer
 
@@ -126,4 +148,4 @@ class RideViewSet(viewsets.ModelViewSet):
 class RideEventViewSet(viewsets.ModelViewSet):
     queryset = RideEvent.objects.all()
     serializer_class = RideEventSerializer
-    pagination_class = RidePagination
+    pagination_class = RideEventPagination

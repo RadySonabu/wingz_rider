@@ -20,7 +20,9 @@ class RideListSerializer(serializers.ModelSerializer):
 
     id_rider = UserSerializer(read_only=True)
     id_driver = UserSerializer(read_only=True)
-    todays_ride_events = RideEventSerializer(many=True, read_only=True, source="events")
+    todays_ride_events = RideEventSerializer(
+        many=True, read_only=True, source="limited_ride_events_24_hours"
+    )
 
     class Meta:
         model = Ride
